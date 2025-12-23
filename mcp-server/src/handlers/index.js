@@ -95,6 +95,12 @@ export { SelectionToolHandler } from './editor/SelectionToolHandler.js';
 export { WindowManagementToolHandler } from './editor/WindowManagementToolHandler.js';
 export { ToolManagementToolHandler } from './editor/ToolManagementToolHandler.js';
 
+// Test runner handlers
+export { ListTestsToolHandler } from './test/ListTestsToolHandler.js';
+export { RunTestsToolHandler } from './test/RunTestsToolHandler.js';
+export { GetTestResultsToolHandler } from './test/GetTestResultsToolHandler.js';
+export { CancelTestsToolHandler } from './test/CancelTestsToolHandler.js';
+
 // Import all handler classes at once
 import { PingToolHandler } from './system/PingToolHandler.js';
 import { ReadLogsToolHandler } from './system/ReadLogsToolHandler.js';
@@ -158,6 +164,10 @@ import { LayerManagementToolHandler } from './editor/LayerManagementToolHandler.
 import { SelectionToolHandler } from './editor/SelectionToolHandler.js';
 import { WindowManagementToolHandler } from './editor/WindowManagementToolHandler.js';
 import { ToolManagementToolHandler } from './editor/ToolManagementToolHandler.js';
+import { ListTestsToolHandler } from './test/ListTestsToolHandler.js';
+import { RunTestsToolHandler } from './test/RunTestsToolHandler.js';
+import { GetTestResultsToolHandler } from './test/GetTestResultsToolHandler.js';
+import { CancelTestsToolHandler } from './test/CancelTestsToolHandler.js';
 
 // Handler registry - single source of truth
 const HANDLER_CLASSES = [
@@ -249,7 +259,13 @@ const HANDLER_CLASSES = [
   LayerManagementToolHandler,
   SelectionToolHandler,
   WindowManagementToolHandler,
-  ToolManagementToolHandler
+  ToolManagementToolHandler,
+  
+  // Test runner handlers
+  ListTestsToolHandler,
+  RunTestsToolHandler,
+  GetTestResultsToolHandler,
+  CancelTestsToolHandler
 ];
 
 /**

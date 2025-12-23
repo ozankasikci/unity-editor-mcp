@@ -727,6 +727,27 @@ namespace UnityEditorMCP.Core
                         response = Response.SuccessResult(command.Id, assetDependencyResult);
                         break;
                         
+                    // Test Runner commands
+                    case "list_tests":
+                        var listTestsResult = TestRunnerHandler.ListTests(command.Parameters);
+                        response = Response.SuccessResult(command.Id, listTestsResult);
+                        break;
+                        
+                    case "run_tests":
+                        var runTestsResult = TestRunnerHandler.RunTests(command.Parameters);
+                        response = Response.SuccessResult(command.Id, runTestsResult);
+                        break;
+                        
+                    case "get_test_results":
+                        var getTestResultsResult = TestRunnerHandler.GetTestResults(command.Parameters);
+                        response = Response.SuccessResult(command.Id, getTestResultsResult);
+                        break;
+                        
+                    case "cancel_tests":
+                        var cancelTestsResult = TestRunnerHandler.CancelTests(command.Parameters);
+                        response = Response.SuccessResult(command.Id, cancelTestsResult);
+                        break;
+                        
                     default:
                         // Use new format with error details
                         response = Response.ErrorResult(
