@@ -70,7 +70,9 @@ function formatResultText(structuredContent) {
     return String(structuredContent.message);
   }
 
-  return JSON.stringify(structuredContent, null, 2);
+  // Compact, not pretty-printed: structuredContent already carries the full
+  // object, so the text fallback should not also spend tokens on indentation.
+  return JSON.stringify(structuredContent);
 }
 
 function formatErrorText(errorContent) {

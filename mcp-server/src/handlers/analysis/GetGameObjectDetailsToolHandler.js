@@ -54,6 +54,15 @@ export class GetGameObjectDetailsToolHandler extends BaseToolHandler {
             throw error;
         }
 
+        // Concise summary keeps the MCP text block short; the full component and
+        // property detail travels once in structuredContent instead of also being
+        // dumped as JSON text.
+        if (result && typeof result === 'object' && result.name) {
+            const componentCount = Array.isArray(result.components) ? result.components.length : null;
+            result.summary = `GameObject "${result.name}"${result.path ? ` (${result.path})` : ''}` +
+                (componentCount != null ? ` — ${componentCount} component${componentCount === 1 ? '' : 's'}` : '');
+        }
+
         return result;
     }
 }

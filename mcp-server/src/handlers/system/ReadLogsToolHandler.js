@@ -73,31 +73,18 @@ export class ReadLogsToolHandler extends BaseToolHandler {
       logType: params.logType
     });
     
-    // Format the logs for better readability
-    if (result.logs && Array.isArray(result.logs)) {
-      // Add some formatting helpers
-      result.formattedLogs = result.logs.map(log => {
-        const icon = this.getLogIcon(log.logType);
-        return `${icon} [${log.timestamp}] ${log.message}`;
-      });
+    // Attach a concise summary so the MCP text block stays short. The full log
+    // array already travels once in structuredContent; the previous code also
+    // emitted a second formatted-string copy (formattedLogs), multiplying tokens
+    // on a tool that can return up to 1000 entries.
+    if (result && Array.isArray(result.logs)) {
+      const errors = result.logs.filter(log => log.logType === 'Error' || log.logType === 'Exception').length;
+      const warnings = result.logs.filter(log => log.logType === 'Warning').length;
+      const count = result.logs.length;
+      result.summary = `Retrieved ${count} Unity log ${count === 1 ? 'entry' : 'entries'} ` +
+        `(${errors} error${errors === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'})`;
     }
-    
-    return result;
-  }
 
-  /**
-   * Gets an icon for the log type
-   * @param {string} logType - The Unity log type
-   * @returns {string} Icon/emoji for the log type
-   */
-  getLogIcon(logType) {
-    switch (logType) {
-      case 'Error': return '❌';
-      case 'Warning': return '⚠️';
-      case 'Assert': return '🔍';
-      case 'Exception': return '💥';
-      case 'Log': 
-      default: return '📝';
-    }
+    return result;
   }
 }
