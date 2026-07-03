@@ -369,20 +369,20 @@ export class UnityConnection extends EventEmitter {
             continue;
           }
           
-          logger.info(`[Unity] Received framed message: ${message}`);
+          logger.debug(`[Unity] Received framed message: ${message}`);
           
           const response = JSON.parse(message);
-          logger.info(`[Unity] Parsed response:`, response);
+          logger.debug(`[Unity] Parsed response:`, response);
           
           // Check if this is a response to a pending command
           if (response.id && this.pendingCommands.has(response.id)) {
-            logger.info(`[Unity] Found pending command for ID ${response.id}`);
+            logger.debug(`[Unity] Found pending command for ID ${response.id}`);
             const pending = this.pendingCommands.get(response.id);
             this.pendingCommands.delete(response.id);
             
             // Handle both old and new response formats
             if (response.status === 'success' || response.success === true) {
-              logger.info(`[Unity] Command ${response.id} succeeded`);
+              logger.debug(`[Unity] Command ${response.id} succeeded`);
               
               let result;
               if (Object.prototype.hasOwnProperty.call(response, 'result')) {
@@ -397,14 +397,14 @@ export class UnityConnection extends EventEmitter {
               if (typeof result === 'string') {
                 try {
                   result = JSON.parse(result);
-                  logger.info(`[Unity] Parsed string result as JSON:`, result);
+                  logger.debug(`[Unity] Parsed string result as JSON:`, result);
                 } catch (parseError) {
                   logger.warn(`[Unity] Failed to parse result as JSON: ${parseError.message}`);
                   // Keep the original string value
                 }
               }
               
-              logger.info(`[Unity] Command ${response.id} resolved successfully`);
+              logger.debug(`[Unity] Command ${response.id} resolved successfully`);
               pending.resolve(result);
             } else if (response.status === 'error' || response.success === false) {
               logger.error(`[Unity] Command ${response.id} failed:`, response.error);
@@ -421,7 +421,7 @@ export class UnityConnection extends EventEmitter {
             }
           } else {
             // Handle unsolicited messages
-            logger.info(`[Unity] Received unsolicited message:`, response);
+            logger.debug(`[Unity] Received unsolicited message:`, response);
             this.emit('message', response);
           }
         } catch (error) {
@@ -449,7 +449,7 @@ export class UnityConnection extends EventEmitter {
    * @returns {Promise<any>} - Response from Unity
    */
   async sendCommand(type, params = {}, options = {}) {
-    logger.info(`[Unity] sendCommand called: ${type}`, { connected: this.connected, params });
+    logger.debug(`[Unity] sendCommand called: ${type}`, { connected: this.connected, params });
 
     if (this.isDisconnecting) {
       throw createConnectionClosedError('Connection is disconnecting');
@@ -527,7 +527,7 @@ export class UnityConnection extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const timeoutMs = normalizeTimeoutMs(options.timeoutMs, this.config.unity.commandTimeout);
-      logger.info(`[Unity] Setting up command ${id} with timeout ${timeoutMs}ms`);
+      logger.debug(`[Unity] Setting up command ${id} with timeout ${timeoutMs}ms`);
       
       // Set up timeout
       const timeout = setTimeout(() => {
@@ -545,7 +545,7 @@ export class UnityConnection extends EventEmitter {
       // Store pending command
       this.pendingCommands.set(id, {
         resolve: (data) => {
-          logger.info(`[Unity] Command ${id} resolved successfully`);
+          logger.debug(`[Unity] Command ${id} resolved successfully`);
           clearTimeout(timeout);
           const authError = createAuthFailureError(data);
           if (authError) {
@@ -570,7 +570,7 @@ export class UnityConnection extends EventEmitter {
       
       const framedMessage = Buffer.concat([lengthBuffer, messageBuffer]);
       
-      logger.info(`[Unity] Sending framed command ${id}: ${JSON.stringify(redactCommand(command))}`);
+      logger.debug(`[Unity] Sending framed command ${id}: ${JSON.stringify(redactCommand(command))}`);
       
       this.socket.write(framedMessage, (error) => {
         if (error) {
@@ -579,7 +579,7 @@ export class UnityConnection extends EventEmitter {
           clearTimeout(timeout);
           reject(error);
         } else {
-          logger.info(`[Unity] Command ${id} written successfully, waiting for response...`);
+          logger.debug(`[Unity] Command ${id} written successfully, waiting for response...`);
         }
       });
     });
