@@ -42,7 +42,7 @@ In Unity:
 
 1. Open **Window → Package Manager**
 2. Click **"+"** → **"Add package from git URL..."**
-3. Paste: `https://github.com/ozankasikci/unity-editor-mcp.git?path=unity-editor-mcp`
+3. Paste: `https://github.com/cxcxcql/unity-editor-mcp.git?path=unity-editor-mcp#unity-2020.3-compat`
 4. Click **Add**
 
 > ✨ Unity will automatically start the MCP bridge. It uses port 6400 when available and falls back to a free local port when multiple Unity instances are open.

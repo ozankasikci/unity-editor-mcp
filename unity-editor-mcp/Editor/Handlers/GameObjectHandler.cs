@@ -355,7 +355,7 @@ namespace UnityEditorMCP.Handlers
                         }
                         else
                         {
-                            matches &= obj.name.Contains(name, StringComparison.OrdinalIgnoreCase);
+                            matches &= obj.name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0;
                         }
                     }
                     
