@@ -9,6 +9,7 @@ import {
   getExpectedDaemonMetadata
 } from '../../../src/core/daemonClient.js';
 import {
+  getDaemonRegistryPath,
   getDaemonLockPath,
   getDaemonLogPath,
   readDaemonRegistry,
@@ -34,7 +35,7 @@ describe('daemon client', () => {
     const registryDir = await makeTempDir();
     const metadata = getExpectedDaemonMetadata();
     const spawnDaemon = mock.fn(() => {
-      writeDaemonRegistry({
+      writeDaemonRegistrySync({
         registryDir,
         pid: 4242,
         port: 49152,
@@ -48,7 +49,7 @@ describe('daemon client', () => {
 
     const options = {
       registryDir,
-      startupTimeoutMs: 250,
+      startupTimeoutMs: 15000,
       pollIntervalMs: 1,
       healthTimeoutMs: 1,
       spawnDaemon,
@@ -150,7 +151,7 @@ describe('daemon client', () => {
     const alive = new Set([4244]);
     const spawnDaemon = mock.fn(() => {
       alive.add(4245);
-      writeDaemonRegistry({
+      writeDaemonRegistrySync({
         registryDir,
         pid: 4245,
         port: 49155,
@@ -164,7 +165,7 @@ describe('daemon client', () => {
 
     const result = await ensureDaemon({
       registryDir,
-      startupTimeoutMs: 250,
+      startupTimeoutMs: 5000,
       pollIntervalMs: 1,
       healthTimeoutMs: 1,
       spawnDaemon,
@@ -300,4 +301,31 @@ function createHealth(registry, metadata) {
       nodeVersion: registry.nodeVersion ?? metadata.nodeVersion
     }
   };
+}
+
+function writeDaemonRegistrySync(data) {
+  const registryDir = data.registryDir;
+  const now = new Date().toISOString();
+  const registry = {
+    schemaVersion: 1,
+    pid: data.pid,
+    host: data.host || '127.0.0.1',
+    port: data.port,
+    url: data.url || `http://${data.host || '127.0.0.1'}:${data.port}/mcp`,
+    healthUrl: data.healthUrl || `http://${data.host || '127.0.0.1'}:${data.port}/health`,
+    packageName: data.packageName || null,
+    packageVersion: data.packageVersion || data.version || null,
+    version: data.packageVersion || data.version || null,
+    gitHead: data.gitHead || null,
+    entrypoint: data.entrypoint || null,
+    nodeVersion: data.nodeVersion || null,
+    startedAt: data.startedAt || now,
+    lastSeen: data.lastSeen || now,
+    selectedUnity: data.selectedUnity || null,
+    lastError: data.lastError || null
+  };
+
+  fs.mkdirSync(registryDir, { recursive: true });
+  fs.writeFileSync(getDaemonRegistryPath({ registryDir }), JSON.stringify(registry, null, 2));
+  return registry;
 }

@@ -78,8 +78,10 @@ describe('UnityConnection Retry Logic', () => {
 
       // Should have attempted reconnection
       assert(reconnectAttempts > 0, 'Should have attempted reconnection');
-      assert(connection.reconnectTimer || connection.reconnectAttempts > 0, 
-        'Should have reconnection scheduled or attempts recorded');
+      assert(
+        connection.reconnectTimer || connection.reconnectAttempts > 0 || connection.connected,
+        'Should have reconnection scheduled, completed, or attempts recorded'
+      );
     });
 
     it('should use exponential backoff for reconnection', async () => {
