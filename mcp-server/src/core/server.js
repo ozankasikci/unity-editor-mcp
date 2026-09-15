@@ -7,6 +7,7 @@ import { UnityConnection } from './unityConnection.js';
 import { registerMcpHandlers } from './mcpRegistration.js';
 import { registerDaemonProxyHandlers } from './daemonProxy.js';
 import { createDaemonMcpClient } from './daemonClient.js';
+import { findUnityProjectRoot } from './unityDiscovery.js';
 import { startDaemonCli } from './daemonServer.js';
 import { createHandlers } from '../handlers/index.js';
 import { config, logger } from './config.js';
@@ -40,6 +41,14 @@ export async function startStdioDaemonProxy(customConfig = config, options = {})
     }
   );
 
+  const discovery = customConfig.unity?.discovery || {};
+  const shimTarget = {
+    projectPath: discovery.projectPath || findUnityProjectRoot(discovery.cwd || process.cwd()) || '',
+    instanceId: discovery.instanceId || '',
+    workspaceId: discovery.workspaceId || ''
+  };
+  logger.info(`Stdio shim Unity target: ${JSON.stringify(shimTarget)}`);
+
   registerDaemonProxyHandlers(server, {
     getClient: async ({ forceRefresh } = {}) => {
       if (cachedClient && !forceRefresh) {
@@ -55,7 +64,8 @@ export async function startStdioDaemonProxy(customConfig = config, options = {})
 
       const connection = await createDaemonMcpClient({
         ...customConfig.daemon,
-        ...(options.daemon || {})
+        ...(options.daemon || {}),
+        target: shimTarget
       });
       cachedClient = connection.client;
       cachedTransport = connection.transport;

@@ -5,9 +5,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  createDaemonMcpClient,
   ensureDaemon,
   getExpectedDaemonMetadata
 } from '../../../src/core/daemonClient.js';
+import { startDaemonServer } from '../../../src/core/daemonServer.js';
 import {
   getDaemonRegistryPath,
   getDaemonLockPath,
@@ -18,8 +20,10 @@ import {
 
 describe('daemon client', () => {
   const tempDirs = [];
+  const servers = [];
 
   afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
     await Promise.all(tempDirs.map((dir) => fsp.rm(dir, { recursive: true, force: true })));
     tempDirs.length = 0;
     mock.restoreAll();
@@ -287,6 +291,42 @@ describe('daemon client', () => {
         return true;
       }
     );
+  });
+
+  it('sends the shim target as request headers', async () => {
+    const registryDir = await makeTempDir();
+    const seen = [];
+    const makeStub = () => ({
+      isConnected: () => true,
+      connect: async () => {},
+      disconnect: () => {},
+      getConnectionInfo: () => ({ connected: true, endpoint: { port: 6400 } }),
+      sendCommand: async () => ({ message: 'pong' })
+    });
+    const daemon = await startDaemonServer({
+      host: '127.0.0.1',
+      port: 0,
+      registryDir,
+      connectToUnity: false,
+      unityConnection: makeStub(),
+      unityConnectionFactory: (target) => {
+        seen.push(target);
+        return makeStub();
+      }
+    });
+    servers.push(daemon);
+
+    const health = await (await fetch(daemon.healthUrl)).json();
+    const { client, transport } = await createDaemonMcpClient({
+      registryDir,
+      autoStart: false,
+      expectedMetadata: health.server,
+      target: { projectPath: '/tmp/shim project', instanceId: 'abc', workspaceId: 'ws1' }
+    });
+    await client.callTool({ name: 'ping', arguments: {} });
+    await transport.close();
+
+    assert.deepEqual(seen, [{ projectPath: '/tmp/shim project', instanceId: 'abc', workspaceId: 'ws1' }]);
   });
 });
 

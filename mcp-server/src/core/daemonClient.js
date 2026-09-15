@@ -216,6 +216,20 @@ export function startDaemonProcess(options = {}) {
   return child;
 }
 
+export function buildTargetHeaders(target = {}) {
+  const headers = {};
+  if (target?.projectPath) {
+    headers['x-unity-mcp-project-path'] = encodeURIComponent(target.projectPath);
+  }
+  if (target?.instanceId) {
+    headers['x-unity-mcp-instance-id'] = encodeURIComponent(target.instanceId);
+  }
+  if (target?.workspaceId) {
+    headers['x-unity-mcp-workspace-id'] = encodeURIComponent(target.workspaceId);
+  }
+  return headers;
+}
+
 export async function createDaemonMcpClient(options = {}) {
   const { registry } = await ensureDaemon(options);
   const client = new Client(
@@ -227,7 +241,11 @@ export async function createDaemonMcpClient(options = {}) {
       capabilities: {}
     }
   );
-  const transport = new StreamableHTTPClientTransport(new URL(registry.url));
+  const headers = buildTargetHeaders(options.target);
+  const transport = new StreamableHTTPClientTransport(
+    new URL(registry.url),
+    Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined
+  );
   await client.connect(transport);
   return { client, transport, registry };
 }
