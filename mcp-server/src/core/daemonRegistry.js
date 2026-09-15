@@ -53,6 +53,7 @@ export async function writeDaemonRegistry(data, options = {}) {
     startedAt: data.startedAt || existing?.startedAt || now,
     lastSeen: data.lastSeen || now,
     selectedUnity: data.selectedUnity || null,
+    targets: data.targets || [],
     lastError: data.lastError || null
   };
 
@@ -115,6 +116,7 @@ export function summarizeDaemonRegistry(registry, options = {}) {
     startedAt: registry.startedAt,
     lastSeen: registry.lastSeen,
     selectedUnity: registry.selectedUnity,
+    targets: registry.targets || [],
     lastError: registry.lastError,
     message: alive && fresh
       ? 'Unity MCP daemon is alive and fresh.'

@@ -161,6 +161,110 @@ describe('daemon server', () => {
     assert.equal(response.statusCode, 413);
     assert.match(response.body, /DAEMON_REQUEST_TOO_LARGE/);
   });
+
+  it('binds each MCP session to the Unity target named in its headers', async () => {
+    const registryDir = await makeTempDir();
+    const seen = [];
+    const makeStub = (label) => ({
+      isConnected: () => true,
+      connect: async () => {},
+      disconnect: () => {},
+      getConnectionInfo: () => ({ connected: true, endpoint: { port: 1, projectPath: label } }),
+      sendCommand: async () => ({ message: 'pong', projectPath: label })
+    });
+    const defaultConnection = makeStub('default');
+    const daemon = await startDaemonServer({
+      host: '127.0.0.1',
+      port: 0,
+      registryDir,
+      connectToUnity: false,
+      heartbeatMs: 25,
+      unityConnection: defaultConnection,
+      unityConnectionFactory: (target) => {
+        seen.push(target);
+        return makeStub(target.projectPath);
+      }
+    });
+    servers.push(daemon);
+
+    const clients = [];
+    async function clientFor(headers) {
+      const client = new Client({ name: 'target-test', version: '1.0.0' }, { capabilities: {} });
+      const transport = new StreamableHTTPClientTransport(new URL(daemon.url), {
+        requestInit: { headers }
+      });
+      await client.connect(transport);
+      clients.push(client);
+      return client;
+    }
+
+    try {
+      const a = await clientFor({ 'x-unity-mcp-project-path': encodeURIComponent('/tmp/proj-a') });
+      const b = await clientFor({ 'x-unity-mcp-project-path': encodeURIComponent('/tmp/proj-b') });
+      const none = await clientFor({});
+
+      const ra = await a.callTool({ name: 'ping', arguments: {} });
+      const rb = await b.callTool({ name: 'ping', arguments: {} });
+      const rn = await none.callTool({ name: 'ping', arguments: {} });
+
+      assert.deepEqual(seen.map((t) => t.projectPath), ['/tmp/proj-a', '/tmp/proj-b']);
+      assert.equal(ra.structuredContent.projectPath, '/tmp/proj-a');
+      assert.equal(rb.structuredContent.projectPath, '/tmp/proj-b');
+      assert.equal(rn.structuredContent.projectPath, 'default');
+
+      const health = await (await fetch(daemon.healthUrl)).json();
+      assert.deepEqual(health.targets.map((t) => t.projectPath).sort(), ['/tmp/proj-a', '/tmp/proj-b']);
+
+      let registryTargets = [];
+      for (let attempt = 0; attempt < 40 && registryTargets.length < 2; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        const registry = await readDaemonRegistry({ registryDir });
+        registryTargets = (registry?.targets || []).map((t) => t.projectPath).sort();
+      }
+      assert.deepEqual(registryTargets, ['/tmp/proj-a', '/tmp/proj-b']);
+    } finally {
+      await Promise.all(clients.map((client) => client.close().catch(() => {})));
+    }
+  });
+
+  it('reuses one connection per target across sessions', async () => {
+    const registryDir = await makeTempDir();
+    let created = 0;
+    const makeStub = () => ({
+      isConnected: () => true,
+      connect: async () => {},
+      disconnect: () => {},
+      getConnectionInfo: () => ({ connected: true, endpoint: { port: 1 } }),
+      sendCommand: async () => ({ message: 'pong' })
+    });
+    const daemon = await startDaemonServer({
+      host: '127.0.0.1',
+      port: 0,
+      registryDir,
+      connectToUnity: false,
+      unityConnection: makeStub(),
+      unityConnectionFactory: () => {
+        created++;
+        return makeStub();
+      }
+    });
+    servers.push(daemon);
+
+    for (let i = 0; i < 2; i++) {
+      const client = new Client({ name: `reuse-test-${i}`, version: '1.0.0' }, { capabilities: {} });
+      const transport = new StreamableHTTPClientTransport(new URL(daemon.url), {
+        requestInit: { headers: { 'x-unity-mcp-project-path': encodeURIComponent('/tmp/same') } }
+      });
+      try {
+        await client.connect(transport);
+        await client.callTool({ name: 'ping', arguments: {} });
+      } finally {
+        await client.close();
+      }
+    }
+
+    assert.equal(created, 1);
+  });
 });
 
 function createMockUnityConnection() {

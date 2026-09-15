@@ -1,4 +1,5 @@
 import http from 'http';
+import path from 'path';
 import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -10,17 +11,103 @@ import { config, logger } from './config.js';
 import { getServerMetadata } from './serverMetadata.js';
 import { removeDaemonRegistry, writeDaemonRegistry } from './daemonRegistry.js';
 
+const TARGET_HEADERS = {
+  projectPath: 'x-unity-mcp-project-path',
+  instanceId: 'x-unity-mcp-instance-id',
+  workspaceId: 'x-unity-mcp-workspace-id'
+};
+
+export function readTargetFromHeaders(headers = {}) {
+  const target = {};
+  for (const [field, header] of Object.entries(TARGET_HEADERS)) {
+    const raw = headers[header];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        target[field] = decodeURIComponent(value.trim());
+      } catch {
+        target[field] = value.trim();
+      }
+    }
+  }
+  return Object.keys(target).length > 0 ? target : null;
+}
+
+export function targetKey(target) {
+  if (!target) return '__default__';
+  if (target.instanceId) return `instance:${target.instanceId}`;
+  if (target.workspaceId) return `workspace:${target.workspaceId}`;
+  if (target.projectPath) return `project:${path.resolve(target.projectPath)}`;
+  return '__default__';
+}
+
+function withDiscoveryTarget(baseConfig, target) {
+  return {
+    ...baseConfig,
+    unity: {
+      ...baseConfig.unity,
+      discovery: {
+        ...(baseConfig.unity?.discovery || {}),
+        ...(target.projectPath && { projectPath: target.projectPath }),
+        ...(target.instanceId && { instanceId: target.instanceId }),
+        ...(target.workspaceId && { workspaceId: target.workspaceId })
+      }
+    }
+  };
+}
+
 export async function startDaemonServer(options = {}) {
   const host = options.host || config.daemon.host;
   const requestedPort = Number.isInteger(Number(options.port)) ? Number(options.port) : config.daemon.port;
   const registryDir = options.registryDir || config.daemon.registryDir;
   const unityConnection = options.unityConnection || new UnityConnection();
   const metadata = getServerMetadata();
-  const handlers = createHandlers(unityConnection);
   const sessions = new Map();
   let selectedUnity = null;
   let lastError = null;
   let actualPort = requestedPort;
+
+  const connections = new Map([
+    ['__default__', { key: '__default__', target: null, connection: unityConnection }]
+  ]);
+
+  const getConnectionEntry = (target) => {
+    const key = targetKey(target);
+    let entry = connections.get(key);
+    if (entry) {
+      return entry;
+    }
+
+    const connection = typeof options.unityConnectionFactory === 'function'
+      ? options.unityConnectionFactory(target)
+      : new UnityConnection({ config: withDiscoveryTarget(config, target) });
+    entry = { key, target, connection };
+    connections.set(key, entry);
+
+    if (options.connectToUnity !== false) {
+      Promise.resolve(connection.connect()).catch((error) => {
+        lastError = error.message;
+        logger.error(`Daemon Unity connection failed for ${key}:`, error.message);
+      });
+    }
+
+    return entry;
+  };
+
+  const describeTargets = () => Array.from(connections.values())
+    .filter((entry) => entry.key !== '__default__')
+    .map((entry) => ({
+      key: entry.key,
+      ...entry.target,
+      connected: typeof entry.connection.isConnected === 'function' ? entry.connection.isConnected() : null,
+      endpoint: entry.connection.endpoint
+        ? {
+            host: entry.connection.endpoint.host,
+            port: entry.connection.endpoint.port,
+            projectPath: entry.connection.endpoint.instance?.projectPath
+          }
+        : null
+    }));
 
   const httpServer = http.createServer(async (req, res) => {
     try {
@@ -32,6 +119,7 @@ export async function startDaemonServer(options = {}) {
           server: metadata,
           unity: unityConnection.getConnectionInfo ? unityConnection.getConnectionInfo() : null,
           selectedUnity,
+          targets: describeTargets(),
           lastError,
           sessions: sessions.size,
           uptimeSeconds: process.uptime()
@@ -44,7 +132,7 @@ export async function startDaemonServer(options = {}) {
       if (pathname === '/mcp') {
         await handleMcpRequest(req, res, {
           sessions,
-          handlers,
+          getConnectionEntry,
           host,
           port: actualPort,
           maxBodyBytes: options.maxBodyBytes ?? config.daemon.maxBodyBytes,
@@ -97,6 +185,7 @@ export async function startDaemonServer(options = {}) {
       entrypoint: metadata.entrypoint,
       nodeVersion: metadata.nodeVersion,
       selectedUnity,
+      targets: describeTargets(),
       lastError
     });
   };
@@ -121,7 +210,9 @@ export async function startDaemonServer(options = {}) {
 
   const close = async () => {
     clearInterval(heartbeat);
-    unityConnection.disconnect();
+    for (const entry of connections.values()) {
+      entry.connection.disconnect();
+    }
     await new Promise((resolve) => httpServer.close(resolve));
     const activeSessions = Array.from(sessions.values());
     sessions.clear();
@@ -174,7 +265,7 @@ async function handleMcpRequest(req, res, options) {
   let session = sessionId ? options.sessions.get(sessionId) : null;
 
   if (!session && !sessionId && isInitializeRequest(parsedBody)) {
-    session = await createMcpSession(options);
+    session = await createMcpSession(options, readTargetFromHeaders(req.headers));
   }
 
   if (!session) {
@@ -185,9 +276,10 @@ async function handleMcpRequest(req, res, options) {
   await session.transport.handleRequest(req, res, parsedBody);
 }
 
-async function createMcpSession(options) {
+async function createMcpSession(options, target = null) {
   let sessionId = null;
-  const server = createDaemonMcpServer(options.handlers);
+  const handlers = createHandlers(options.getConnectionEntry(target).connection);
+  const server = createDaemonMcpServer(handlers);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: options.sessionIdGenerator,
     enableDnsRebindingProtection: true,
