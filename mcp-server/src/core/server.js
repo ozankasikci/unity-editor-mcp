@@ -48,6 +48,9 @@ export async function startStdioDaemonProxy(customConfig = config, options = {})
     workspaceId: discovery.workspaceId || ''
   };
   logger.info(`Stdio shim Unity target: ${JSON.stringify(shimTarget)}`);
+  if (!shimTarget.projectPath && !shimTarget.instanceId && !shimTarget.workspaceId) {
+    logger.warn(`No Unity project root found from ${discovery.cwd || process.cwd()}; daemon will use its default Unity target`);
+  }
 
   registerDaemonProxyHandlers(server, {
     getClient: async ({ forceRefresh } = {}) => {
