@@ -5,6 +5,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { UnityConnection } from './unityConnection.js';
+import { normalizeProjectPath } from './unityDiscovery.js';
 import { registerMcpHandlers } from './mcpRegistration.js';
 import { createHandlers } from '../handlers/index.js';
 import { config, logger } from './config.js';
@@ -22,36 +23,56 @@ export function readTargetFromHeaders(headers = {}) {
   for (const [field, header] of Object.entries(TARGET_HEADERS)) {
     const raw = headers[header];
     const value = Array.isArray(raw) ? raw[0] : raw;
-    if (typeof value === 'string' && value.trim()) {
-      try {
-        target[field] = decodeURIComponent(value.trim());
-      } catch {
-        target[field] = value.trim();
-      }
+    if (typeof value !== 'string' || !value.trim()) {
+      continue;
     }
+
+    let decoded;
+    try {
+      decoded = decodeURIComponent(value.trim());
+    } catch {
+      decoded = value.trim();
+    }
+
+    if (field === 'projectPath' && !path.isAbsolute(decoded)) {
+      logger.warn(`Ignoring relative ${header} header value: ${decoded}`);
+      continue;
+    }
+
+    target[field] = decoded;
   }
   return Object.keys(target).length > 0 ? target : null;
 }
 
 export function targetKey(target) {
   if (!target) return '__default__';
-  if (target.instanceId) return `instance:${target.instanceId}`;
-  if (target.workspaceId) return `workspace:${target.workspaceId}`;
-  if (target.projectPath) return `project:${path.resolve(target.projectPath)}`;
-  return '__default__';
+
+  const parts = [];
+  const normalizedProjectPath = normalizeProjectPath(target.projectPath);
+  if (normalizedProjectPath) parts.push(`project:${normalizedProjectPath}`);
+  if (target.instanceId) parts.push(`instance:${target.instanceId}`);
+  if (target.workspaceId) parts.push(`workspace:${target.workspaceId}`);
+
+  return parts.length > 0 ? parts.join('|') : '__default__';
 }
 
-function withDiscoveryTarget(baseConfig, target) {
+export function withDiscoveryTarget(baseConfig, target = {}) {
+  const hasSelector = Boolean(target.projectPath || target.instanceId || target.workspaceId);
+  const baseDiscovery = baseConfig.unity?.discovery || {};
+  const discovery = hasSelector
+    ? {
+        ...baseDiscovery,
+        projectPath: target.projectPath || '',
+        instanceId: target.instanceId || '',
+        workspaceId: target.workspaceId || ''
+      }
+    : { ...baseDiscovery };
+
   return {
     ...baseConfig,
     unity: {
       ...baseConfig.unity,
-      discovery: {
-        ...(baseConfig.unity?.discovery || {}),
-        ...(target.projectPath && { projectPath: target.projectPath }),
-        ...(target.instanceId && { instanceId: target.instanceId }),
-        ...(target.workspaceId && { workspaceId: target.workspaceId })
-      }
+      discovery
     }
   };
 }
@@ -81,12 +102,12 @@ export async function startDaemonServer(options = {}) {
     const connection = typeof options.unityConnectionFactory === 'function'
       ? options.unityConnectionFactory(target)
       : new UnityConnection({ config: withDiscoveryTarget(config, target) });
-    entry = { key, target, connection };
+    entry = { key, target, connection, lastError: null };
     connections.set(key, entry);
 
     if (options.connectToUnity !== false) {
       Promise.resolve(connection.connect()).catch((error) => {
-        lastError = error.message;
+        entry.lastError = error.message;
         logger.error(`Daemon Unity connection failed for ${key}:`, error.message);
       });
     }
@@ -96,18 +117,25 @@ export async function startDaemonServer(options = {}) {
 
   const describeTargets = () => Array.from(connections.values())
     .filter((entry) => entry.key !== '__default__')
-    .map((entry) => ({
-      key: entry.key,
-      ...entry.target,
-      connected: typeof entry.connection.isConnected === 'function' ? entry.connection.isConnected() : null,
-      endpoint: entry.connection.endpoint
-        ? {
-            host: entry.connection.endpoint.host,
-            port: entry.connection.endpoint.port,
-            projectPath: entry.connection.endpoint.instance?.projectPath
-          }
-        : null
-    }));
+    .map((entry) => {
+      const connected = typeof entry.connection.isConnected === 'function'
+        ? entry.connection.isConnected()
+        : null;
+      const endpoint = entry.connection.endpoint;
+      return {
+        key: entry.key,
+        target: entry.target,
+        connected,
+        endpoint: connected && endpoint
+          ? {
+              host: endpoint.host,
+              port: endpoint.port,
+              projectPath: endpoint.instance?.projectPath
+            }
+          : null,
+        error: entry.lastError || null
+      };
+    });
 
   const httpServer = http.createServer(async (req, res) => {
     try {
@@ -210,13 +238,13 @@ export async function startDaemonServer(options = {}) {
 
   const close = async () => {
     clearInterval(heartbeat);
-    for (const entry of connections.values()) {
-      entry.connection.disconnect();
-    }
     await new Promise((resolve) => httpServer.close(resolve));
     const activeSessions = Array.from(sessions.values());
     sessions.clear();
     await Promise.all(activeSessions.map((session) => closeMcpSession(session)));
+    for (const entry of connections.values()) {
+      entry.connection.disconnect();
+    }
     await removeDaemonRegistry({ registryDir });
   };
 

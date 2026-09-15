@@ -6,7 +6,12 @@ import os from 'os';
 import path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { startDaemonServer } from '../../../src/core/daemonServer.js';
+import {
+  readTargetFromHeaders,
+  startDaemonServer,
+  targetKey,
+  withDiscoveryTarget
+} from '../../../src/core/daemonServer.js';
 import { readDaemonRegistry } from '../../../src/core/daemonRegistry.js';
 
 describe('daemon server', () => {
@@ -213,13 +218,13 @@ describe('daemon server', () => {
       assert.equal(rn.structuredContent.projectPath, 'default');
 
       const health = await (await fetch(daemon.healthUrl)).json();
-      assert.deepEqual(health.targets.map((t) => t.projectPath).sort(), ['/tmp/proj-a', '/tmp/proj-b']);
+      assert.deepEqual(health.targets.map((t) => t.target.projectPath).sort(), ['/tmp/proj-a', '/tmp/proj-b']);
 
       let registryTargets = [];
       for (let attempt = 0; attempt < 40 && registryTargets.length < 2; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 25));
         const registry = await readDaemonRegistry({ registryDir });
-        registryTargets = (registry?.targets || []).map((t) => t.projectPath).sort();
+        registryTargets = (registry?.targets || []).map((t) => t.target.projectPath).sort();
       }
       assert.deepEqual(registryTargets, ['/tmp/proj-a', '/tmp/proj-b']);
     } finally {
@@ -265,7 +270,137 @@ describe('daemon server', () => {
 
     assert.equal(created, 1);
   });
+
+  it('shares one connection between a project root and its Assets folder', async () => {
+    const { created } = await countFactoryCalls([
+      { 'x-unity-mcp-project-path': encodeURIComponent('/tmp/x') },
+      { 'x-unity-mcp-project-path': encodeURIComponent('/tmp/x/Assets') }
+    ]);
+    assert.equal(created, 1);
+  });
+
+  it('does not share a connection between different projects in one workspace', async () => {
+    const { created } = await countFactoryCalls([
+      {
+        'x-unity-mcp-project-path': encodeURIComponent('/tmp/ws/proj-a'),
+        'x-unity-mcp-workspace-id': 'ws-1'
+      },
+      {
+        'x-unity-mcp-project-path': encodeURIComponent('/tmp/ws/proj-b'),
+        'x-unity-mcp-workspace-id': 'ws-1'
+      }
+    ]);
+    assert.equal(created, 2);
+  });
+
+  async function countFactoryCalls(headerSets) {
+    const registryDir = await makeTempDir();
+    let created = 0;
+    const daemon = await startDaemonServer({
+      host: '127.0.0.1',
+      port: 0,
+      registryDir,
+      connectToUnity: false,
+      unityConnection: createPoolStub(),
+      unityConnectionFactory: () => {
+        created++;
+        return createPoolStub();
+      }
+    });
+    servers.push(daemon);
+
+    for (const [index, headers] of headerSets.entries()) {
+      const client = new Client({ name: `pool-test-${index}`, version: '1.0.0' }, { capabilities: {} });
+      const transport = new StreamableHTTPClientTransport(new URL(daemon.url), {
+        requestInit: { headers }
+      });
+      try {
+        await client.connect(transport);
+        await client.callTool({ name: 'ping', arguments: {} });
+      } finally {
+        await client.close();
+      }
+    }
+
+    return { created };
+  }
+
+  it('drops relative projectPath header values', () => {
+    assert.equal(readTargetFromHeaders({
+      'x-unity-mcp-project-path': encodeURIComponent('relative/proj')
+    }), null);
+
+    assert.deepEqual(readTargetFromHeaders({
+      'x-unity-mcp-project-path': encodeURIComponent('../escape'),
+      'x-unity-mcp-instance-id': 'abc'
+    }), { instanceId: 'abc' });
+
+    assert.deepEqual(readTargetFromHeaders({
+      'x-unity-mcp-project-path': encodeURIComponent('/abs/proj')
+    }), { projectPath: '/abs/proj' });
+  });
+
+  it('keys on every provided selector and normalizes the project path', () => {
+    assert.equal(targetKey(null), '__default__');
+    assert.equal(targetKey({}), '__default__');
+    assert.equal(
+      targetKey({ projectPath: '/tmp/x/Assets' }),
+      targetKey({ projectPath: '/tmp/x' })
+    );
+    assert.notEqual(
+      targetKey({ projectPath: '/tmp/a', workspaceId: 'ws' }),
+      targetKey({ projectPath: '/tmp/b', workspaceId: 'ws' })
+    );
+    assert.equal(
+      targetKey({ projectPath: '/tmp/a', instanceId: 'i1', workspaceId: 'ws' }),
+      'project:/tmp/a|instance:i1|workspace:ws'
+    );
+  });
+
+  it('clears ambient discovery selectors when the target names one', () => {
+    const baseConfig = {
+      unity: {
+        host: '127.0.0.1',
+        discovery: {
+          projectPath: '/env/project',
+          instanceId: 'env-instance',
+          workspaceId: 'env-workspace',
+          registryDir: '/env/registry'
+        }
+      }
+    };
+
+    const scoped = withDiscoveryTarget(baseConfig, { projectPath: '/tmp/target' });
+    assert.deepEqual(scoped.unity.discovery, {
+      projectPath: '/tmp/target',
+      instanceId: '',
+      workspaceId: '',
+      registryDir: '/env/registry'
+    });
+    assert.equal(scoped.unity.host, '127.0.0.1');
+    assert.deepEqual(baseConfig.unity.discovery, {
+      projectPath: '/env/project',
+      instanceId: 'env-instance',
+      workspaceId: 'env-workspace',
+      registryDir: '/env/registry'
+    });
+
+    assert.deepEqual(
+      withDiscoveryTarget(baseConfig, {}).unity.discovery,
+      baseConfig.unity.discovery
+    );
+  });
 });
+
+function createPoolStub() {
+  return {
+    isConnected: () => true,
+    connect: async () => {},
+    disconnect: () => {},
+    getConnectionInfo: () => ({ connected: true, endpoint: { port: 1 } }),
+    sendCommand: async () => ({ message: 'pong' })
+  };
+}
 
 function createMockUnityConnection() {
   return {
