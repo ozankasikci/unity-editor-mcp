@@ -417,7 +417,7 @@ namespace UnityEditorMCP.Handlers
                 
                 foreach (var window in windows)
                 {
-                    if (window.titleContent.text.Contains(windowName, StringComparison.OrdinalIgnoreCase))
+                    if (window.titleContent.text.IndexOf(windowName, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         targetWindow = window;
                         break;

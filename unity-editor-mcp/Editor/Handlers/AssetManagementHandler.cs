@@ -730,9 +730,9 @@ namespace UnityEditorMCP.Handlers
                 }
 
                 // Check if already in prefab mode with this prefab
-                var currentStage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+                var currentStage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
                 bool wasAlreadyOpen = false;
-                
+
                 if (currentStage != null && currentStage.assetPath == prefabPath)
                 {
                     wasAlreadyOpen = true;
@@ -741,9 +741,9 @@ namespace UnityEditorMCP.Handlers
                 {
                     // Open the prefab in prefab mode
                     AssetDatabase.OpenAsset(prefabAsset);
-                    
+
                     // Wait for prefab stage to be ready
-                    currentStage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+                    currentStage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
                 }
 
                 if (currentStage == null)
@@ -801,7 +801,7 @@ namespace UnityEditorMCP.Handlers
                 bool saveChanges = parameters["saveChanges"]?.ToObject<bool>() ?? true;
 
                 // Check if in prefab mode
-                var currentStage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+                var currentStage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
                 if (currentStage == null)
                 {
                     return new
@@ -860,8 +860,8 @@ namespace UnityEditorMCP.Handlers
                 bool includeChildren = parameters["includeChildren"]?.ToObject<bool>() ?? true;
 
                 // Check if in prefab mode
-                var currentStage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
-                
+                var currentStage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+
                 if (currentStage != null && string.IsNullOrEmpty(gameObjectPath))
                 {
                     // Save current prefab in prefab mode
